@@ -660,25 +660,6 @@ void LogHexDump(const char *label, unsigned char *data, short len)
 
 ## Integration with Other Systems
 
-### With SIOW (Symantec IDE Output Window)
-If you're also using printf/SIOW for debugging:
-
-```c
-#define LOG_TO_FILE 1
-#define LOG_TO_CONSOLE 1
-
-void MyLog(const char *msg)
-{
-    #if LOG_TO_FILE
-    DebugLog(msg);
-    #endif
-    
-    #if LOG_TO_CONSOLE
-    printf("%s\n", msg);
-    #endif
-}
-```
-
 ### With MacsBug
 Debug.c works alongside MacsBug. If you have MacsBug installed, you can use both:
 - Debug.c for persistent logging
