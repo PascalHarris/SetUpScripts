@@ -1,0 +1,33 @@
+# GSport configuration  (lives at /opt/gsport/config.txt)
+#
+# Disk slots mount IMAGE FILES you already have (.po/.2mg/.woz/.dsk). GSport
+# does not read physical drives, so this is how software is loaded.
+#   s5d1 / s5d2 : 3.5"  drives
+#   s6d1 / s6d2 : 5.25" drives
+#   s7d1        : SmartPort / ProDOS hard disk (your GS/OS system image, <=32MB)
+# Paths are relative to /opt/gsport (the kiosk WorkingDirectory).
+
+s5d1 =
+s5d2 =
+
+s6d1 =
+s6d2 =
+
+# Point this at your bootable GS/OS image (supply your own):
+s7d1 = images/gsos.2mg
+
+# RAM size, ZipGS acceleration, ROM selection and networking are set from the
+# F4 menu on the console and persist here after you Save. First-boot checklist:
+#   1. ROM File Selection          -> /opt/gsport/ROM   (ROM03 for AppleTalk)
+#   2. Memory                       -> max (GSport ceiling is 14MB expansion)
+#   3. ZipGS / Speed                -> Unlimited for >=14MHz (read Eff MHz line)
+#   4. Ethernet Card Configuration  -> Uthernet in slot 3, interface = eth0
+#                                      (BBS-over-IP via Marinetti)
+#   5. Ethernet Card Configuration  -> AppleTalk Bridging = On, interface = eth0
+#                                      (AppleShare / netatalk / A2SERVER; takes slot 1)
+#   6. Serial Port Configuration    -> Port 1 (slot 2) = "Only use socket 6502"
+#                                      then run 05-serial-bridge.sh for USB RS232
+#
+# Networking note: Serial (slots 1/2), Uthernet (slot 3) and AppleTalk all run
+# at once. AppleTalk occupies the printer port (slot 1), so use the modem port
+# (slot 2 / socket 6502) for your RS232 adaptor.

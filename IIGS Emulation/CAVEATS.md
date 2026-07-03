@@ -1,0 +1,70 @@
+# CAVEATS — honest limits
+
+## 1. Serial + Ethernet together: yes
+
+The emulated SCC serial ports (slots 1/2, exposed as TCP 6501/6502) and the
+Uthernet card (slot 3) are independent in the IIgs and in GSport. They run
+simultaneously. AppleTalk, when enabled, runs as LocalTalk through the printer
+port (slot 1) -- confirmed in scc.c (`case 3: localtalk`). So:
+- RS232 -> modem port (slot 2 / socket 6502).
+- AppleTalk -> printer port (slot 1).
+- Uthernet -> slot 3.
+All three can be active at once. If you don't use AppleTalk, either serial
+port is free for RS232.
+
+Note: the F4 menu offers "Use real port if avail", but the real-serial-device
+(termios) backend is only in scc_macdriver.c, which is NOT compiled on Linux.
+On the Pi the working path is the TCP socket + the socat bridge (05 script).
+Porting the termios code to Linux is possible but is a source change.
+
+## 2. VGA + composite simultaneously (the one weak spot)
+
+VGA via HDMI->VGA is solid and is the default. Getting composite live AT THE
+SAME TIME on a Pi 4 is the hard part:
+- `03-boot-experience.sh vga-composite` keeps HDMI/VGA and ASKS for composite as
+  a second connector via enable_tvout + a composite `video=` line. It is
+  config.txt/cmdline only, so it is fully reversible and cannot brick boot
+  (revert: `/opt/gsport/revert-video.sh`). BUT whether the firmware/kernel
+  actually brings composite up as a secondary output this way is not guaranteed,
+  and I could not test it on hardware. If it doesn't appear, you simply get VGA.
+- The stock documented composite method (`,composite` on the overlay) DISABLES
+  HDMI, so it cannot be used for simultaneity.
+- The GUARANTEED simultaneous route is hardware: VGA from a **DPI VGA666 hat**
+  (GPIO, separate pixel pipeline from the composite VEC), with composite from
+  the 3.5mm jack. Reliable, but it consumes most of the GPIO header. Not
+  auto-scripted because it needs that hardware.
+
+Composite is low-res (PAL/NTSC), which suits the IIgs natively; VGA upscales.
+
+## 3. Sound
+
+GSport writes to /dev/dsp (OSS). `01-system-prep.sh` loads `snd_pcm_oss` and
+pins the ALSA default to the analog jack (VGA-over-HDMI carries no audio;
+composite shares the same analog jack). On-board analog audio is PWM and a bit
+hissy -- for cleaner sound, use a USB sound card and point /etc/asound.conf at
+it instead.
+
+## 4. AppleTalk
+
+Bridges LocalTalk->EtherTalk v2. Requires **ROM03** and an AppleShare-compatible
+server (netatalk / A2SERVER / classic Mac). It does NOT do AFP-over-IP, so a
+modern NAS will not answer. Wired Ethernet only; WiFi is unsupported by the
+layer-2 promiscuous mechanism (Uthernet and AppleTalk both rely on it).
+
+## 5. Framebuffer on Bookworm
+
+`fbdriver.c` opens /dev/fb0. On Pi OS Lite this normally exists via DRM fbdev
+emulation. If it is missing after boot, the X11 fallback binary (`gsportx`,
+also built by 02) can be launched under a minimal X server. The kiosk service
+prefers the framebuffer binary.
+
+## 6. The blue shade
+
+`#1B3FBF` is an APPROXIMATION of the IIgs boot blue, not a citable exact value.
+Tune it in one place in `03-boot-experience.sh`.
+
+## 7. Not hardware-tested
+
+The build approach was compiled and verified off-Pi. The boot/splash/video/
+audio and the vga-composite attempt follow current Raspberry Pi documentation
+but must be verified on your actual Pi 4.
