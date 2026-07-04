@@ -65,11 +65,18 @@ add_overlay "dtoverlay=disable-bt"
 rfkill block wifi 2>/dev/null || true
 
 echo "[01] create /opt/gsport tree"
-install -d -m 0755 /opt/gsport /opt/gsport/images /opt/gsport/roms
+# NB: the ROM is a FILE at /opt/gsport/ROM (not a 'roms/' directory).
+install -d -m 0755 /opt/gsport /opt/gsport/images
 cat > /opt/gsport/PUT-YOUR-ROM-HERE.txt <<'EOF'
 Copy your legally-owned Apple IIgs ROM03 image to:  /opt/gsport/ROM
 (No ROM is downloaded for you; ROMs are copyrighted.)
 AppleTalk bridging requires a ROM03 machine specifically.
 EOF
+
+# Hand the tree to your login user so you can manage ROM/images/config over SSH
+# without sudo. The kiosk runs as root and still reads everything regardless.
+OWNER="${SUDO_USER:-pi}"
+chown -R "$OWNER":"$OWNER" /opt/gsport
+echo "[01] /opt/gsport owned by $OWNER"
 
 echo "[01] done. Next: sudo ./02-build-gsport.sh"

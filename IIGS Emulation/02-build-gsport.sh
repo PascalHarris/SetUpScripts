@@ -83,4 +83,10 @@ echo "[02] grant raw-socket capability (Uthernet/AppleTalk promiscuous, no root)
 setcap cap_net_raw,cap_net_admin+eip "$DEST/gsportfb" || \
   echo "  setcap failed; the kiosk service runs on tty1 and can fall back to root"
 
-echo "[02] done. Put your ROM03 at /opt/gsport/ROM, then run 03 + 04."
+# Re-assert login-user ownership (files above were installed as root).
+# Binary stays 0755 and root-runnable via systemd; owner just lets you replace it.
+OWNER="${SUDO_USER:-pi}"
+chown -R "$OWNER":"$OWNER" "$DEST"
+echo "[02] $DEST owned by $OWNER"
+
+echo "[02] done. Sanity-check per README, then put your ROM03 at /opt/gsport/ROM."
