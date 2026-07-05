@@ -1,33 +1,48 @@
-# GSport configuration  (lives at /opt/gsport/config.txt)
+# GSport configuration file  (lives at /opt/gsport/config.txt)
 #
-# Disk slots mount IMAGE FILES you already have (.po/.2mg/.woz/.dsk). GSport
-# does not read physical drives, so this is how software is loaded.
-#   s5d1 / s5d2 : 3.5"  drives
-#   s6d1 / s6d2 : 5.25" drives
-#   s7d1        : SmartPort / ProDOS hard disk (your GS/OS system image, <=32MB)
-# Paths are relative to /opt/gsport (the kiosk WorkingDirectory).
+# Disk slots mount IMAGE FILES (.po/.2mg/.woz/.dsk/.hdv). Paths are relative to
+# /opt/gsport. GSport does not read physical drives.
+#
+# CAPACITY (from this file): 15 images total
+#   slot 5 (3.5")      : s5d1, s5d2           = 2
+#   slot 6 (5.25")     : s6d1, s6d2           = 2
+#   slot 7 (SmartPort) : s7d1 .. s7d11        = 11   <-- all 11 used below
+# Volumes with a ProDOS/HFS filesystem appear as icons on the GS/OS desktop.
 
+# 3.5" and 5.25" drives (unused)
 s5d1 =
 s5d2 =
-
 s6d1 =
 s6d2 =
 
-# Point this at your bootable GS/OS image (supply your own):
-s7d1 = images/gsos.2mg
+# --- SmartPort hard disks (slot 7) ---
+# BOOT: SmartPort boots unit 1 = s7d1. ActionGS is placed there per your setup.
+#   - If ActionGS boots GS/OS, you get the Finder desktop with ALL 11 volumes
+#     mounted as icons.
+#   - If ActionGS is a standalone self-booting game (no GS/OS Finder), you will
+#     NOT see a desktop. To get the desktop-with-all-volumes experience instead,
+#     swap System_6_0_4_and_Free_Games.hdv into s7d1.
+s7d1 = images/ActionGS.2mg
+s7d2 = images/System_6_0_4_and_Free_Games.hdv
+s7d3 = images/Productivity_and_Graphics.hdv
+s7d4 = images/Audio_and_Utilities.hdv
+s7d5 = images/HyperCard.hdv
+s7d6 = images/Graphics_&_Animation.hdv
+s7d7 = images/Communications.hdv
+s7d8 = images/Games_with_Path_Mods.hdv
+s7d9 = images/Action_Games.hdv
+s7d10 = images/Adventure_and_Sim_Games.hdv
+s7d11 = images/Board_Games_and_RPGs.hdv
 
 # RAM size, ZipGS acceleration, ROM selection and networking are set from the
-# F4 menu on the console and persist here after you Save. First-boot checklist:
+# F4 menu and persist here after Save. First-boot checklist:
 #   1. ROM File Selection          -> /opt/gsport/ROM   (ROM03 for AppleTalk)
-#   2. Memory                       -> max (GSport ceiling is 14MB expansion)
+#   2. Memory                       -> max (GSport ceiling 14MB expansion)
 #   3. ZipGS / Speed                -> Unlimited for >=14MHz (read Eff MHz line)
 #   4. Ethernet Card Configuration  -> Uthernet in slot 3, interface = eth0
-#                                      (BBS-over-IP via Marinetti)
 #   5. Ethernet Card Configuration  -> AppleTalk Bridging = On, interface = eth0
-#                                      (AppleShare / netatalk / A2SERVER; takes slot 1)
 #   6. Serial Port Configuration    -> Port 1 (slot 2) = "Only use socket 6502"
-#                                      then run 05-serial-bridge.sh for USB RS232
 #
-# Networking note: Serial (slots 1/2), Uthernet (slot 3) and AppleTalk all run
-# at once. AppleTalk occupies the printer port (slot 1), so use the modem port
-# (slot 2 / socket 6502) for your RS232 adaptor.
+# Serial (slots 1/2), Uthernet (slot 3) and AppleTalk run simultaneously.
+# AppleTalk takes the printer port (slot 1); use the modem port (slot 2 / 6502)
+# for the RS232 bridge.
