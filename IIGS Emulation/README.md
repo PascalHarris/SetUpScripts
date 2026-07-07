@@ -169,6 +169,17 @@ the server" even though the server is visible). The server must run as a **seed
 router** with a fixed net number, and the hint must match it. Full server steps,
 with rollback, are in **`netatalk-server-setup.md`**.
 
+## Telnet to BBSs (TCP/IP via Marinetti + Uthernet)
+
+Runs at the same time as AppleTalk with no conflict — Uthernet is slot 3, TCP/IP
+is a separate stack from AppleTalk (slot 1). Turn the card on with
+`g_ethernet = 1` (already set) or F4 -> Uthernet Card in Slot 3 = On, then on the
+IIgs install Marinetti 3.0b11 and telnet with Spectrum or ANSITerm.
+
+The one trap: GSport emulates the CS8900A = **Uthernet I**, so you must use the
+**Uthernet (I)** Marinetti link layer, NOT Uthernet II — and set its slot to 3.
+Full steps, with rollback, in **`marinetti-bbs-setup.md`**.
+
 ## Files
 
 - `01-system-prep.sh`    packages, ssh, OSS+analog audio, wifi off, dirs, ownership
@@ -176,8 +187,9 @@ with rollback, are in **`netatalk-server-setup.md`**.
 - `03-boot-experience.sh [vga|composite|vga-composite]` boot splash + video mode
 - `04-kiosk-service.sh`  systemd unit: GSport on the console at boot
 - `05-serial-bridge.sh`  socat bridge: USB RS232 <-> GSport TCP serial port
-- `gsport.config.txt`    starter config (disk slots; RAM/accel; AppleTalk keys)
+- `gsport.config.txt`    starter config (disk slots; RAM/accel; AppleTalk+Uthernet keys)
 - `netatalk-server-setup.md`  server-side seed-router + UAM config, with rollback
+- `marinetti-bbs-setup.md`    TCP/IP for BBSs (Marinetti + Uthernet I), with rollback
 
 See `CAVEATS.md` for honest limits and the experimental/source-patch items.
 

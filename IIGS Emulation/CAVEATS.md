@@ -73,6 +73,15 @@ Hard-won gotchas from getting this working:
 - **Same physical segment.** EtherTalk is layer 2 — no routers between the Pi,
   the server, and any other AppleTalk machines.
 
+## 4b. Uthernet / BBS (TCP/IP)
+
+Runs simultaneously with AppleTalk (Uthernet = slot 3, AppleTalk = slot 1;
+separate stacks on the same `eth0`). The gotcha: GSport emulates the **CS8900A =
+Uthernet I**, and the W5100 **Uthernet II is not emulated**. So on the IIgs you
+must use the **Uthernet (I)** Marinetti link layer, not the more commonly
+documented Uthernet II ("UtherLL") one, and set its slot to 3 to match GSport.
+DHCP is the easy path (hands over IP + DNS). See marinetti-bbs-setup.md.
+
 ## 5. Framebuffer on Bookworm
 
 `fbdriver.c` opens /dev/fb0. On Pi OS Lite this normally exists via DRM fbdev

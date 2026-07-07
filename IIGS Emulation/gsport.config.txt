@@ -41,8 +41,10 @@ g_appletalk_network_hint = 1
 # List:" shown in F4 -> Ethernet Card Configuration, then uncomment/set it:
 # g_ethernet_interface = 0
 # Uthernet card in slot 3 for TCP/IP (BBS via Marinetti). 0 = off, 1 = on.
-# Runs simultaneously with AppleTalk if you want both.
-g_ethernet = 0
+# Runs simultaneously with AppleTalk (slot 3 vs slot 1 - no conflict).
+# On the IIgs, install Marinetti + the Uthernet *I* (CS8900A) link layer, NOT
+# Uthernet II. See marinetti-bbs-setup.md.
+g_ethernet = 1
 # Set to 1 to show AppleTalk diagnostics while debugging the bridge.
 g_appletalk_diagnostics = 0
 
