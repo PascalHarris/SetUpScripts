@@ -46,10 +46,32 @@ it instead.
 
 ## 4. AppleTalk
 
-Bridges LocalTalk->EtherTalk v2. Requires **ROM03** and an AppleShare-compatible
-server (netatalk / A2SERVER / classic Mac). It does NOT do AFP-over-IP, so a
-modern NAS will not answer. Wired Ethernet only; WiFi is unsupported by the
-layer-2 promiscuous mechanism (Uthernet and AppleTalk both rely on it).
+Bridges LocalTalk->EtherTalk Phase 2 (802.3 + SNAP). Requires **ROM03** and an
+AppleShare-compatible server (Netatalk 2.x / A2SERVER / classic Mac). It does NOT
+do AFP-over-IP, so a modern NAS will not answer. Wired Ethernet only; WiFi is
+unsupported by the layer-2 promiscuous mechanism (Uthernet and AppleTalk both
+rely on it), and the binary needs cap_net_raw (setcap in 02, or run as root).
+
+Hard-won gotchas from getting this working:
+- **IIgs side: Slot 1 = AppleTalk, not Slot 7.** On ROM03 the AppleTalk option is
+  in slot 1 (printer port); slot 7's AppleTalk is greyed out (that's the ROM01
+  location). AppleTalk then uses the printer port, so put RS232 on slot 2.
+- **No Chooser.** Server mounting is the **AppleShare** icon in the *graphical*
+  Control Panel, not a Chooser menu. If it's missing, install "Network:
+  AppleShare" from the GS/OS Installer (AFP Mounter erroring about missing
+  AppleTalk components is the tell).
+- **Network number is the usual failure.** The bridge starts on net 0 and learns
+  its number only from a seed router's RTMP. On a router-less network the server
+  sits in the startup range (65280.x) and the bridge can't open sessions -> the
+  server is *visible* but selecting it gives "No response from the server".
+  Fix: run the server as a seed router with a fixed net (e.g. net 1) and set
+  GSport's `g_appletalk_network_hint` to match. Setting the hint to the startup
+  net (65280) alone is usually NOT enough. See netatalk-server-setup.md.
+- **Login: use Guest first.** The IIgs only does guest/cleartext/randnum (not
+  DHX/DHX2), and stock System 6.0.1's CDEV sends cleartext passwords wrongly, so
+  guest is the reliable first mount. Ensure afpd offers uams_guest.so.
+- **Same physical segment.** EtherTalk is layer 2 — no routers between the Pi,
+  the server, and any other AppleTalk machines.
 
 ## 5. Framebuffer on Bookworm
 

@@ -141,6 +141,34 @@ all use it); only the pure `composite` mode turns HDMI off.
 
 ---
 
+## AppleTalk / AppleShare file sharing (connecting to a Netatalk server)
+
+There is no "Chooser" on the IIgs — server mounting lives in the **graphical**
+Control Panel's **AppleShare** icon. Getting there involves both sides:
+
+GSport (host) side — F4 -> Ethernet Card Configuration:
+- **AppleTalk Bridging = On**, and **Use Interface Number** = your `eth0` (the
+  screen prints an "Interface List:" with the numbers).
+- **AppleTalk Network Hint** = the server's AppleTalk net number (see below).
+  This lives under developer settings; it is easier to set in `config.txt` as
+  `g_appletalk_network_hint = <n>` than to scroll the menu.
+
+IIgs (guest) side — boot GS/OS (the System 6.0.4 disk), then:
+- Control Panel (text, Ctrl-Open-Apple-Esc) -> **Slots** -> **Slot 1 = AppleTalk**.
+  On ROM03 it is slot 1, NOT slot 7 (slot 7 is greyed out — that is the ROM01
+  location). Restart.
+- Install the networking software if absent: GS/OS Installer -> Customize ->
+  **"Network: AppleShare"**. Without it there is no AppleShare control panel
+  (you may see AFP Mounter, which errors that AppleTalk components are missing).
+- Apple menu -> **Control Panel** (graphical) -> **AppleShare** icon -> pick the
+  server -> **log in as Guest first** (stock 6.0.1 has a cleartext-password bug).
+
+The network number: the GSport bridge cannot use a router-less AppleTalk network
+(it never learns a net number and directed sessions fail with "No response from
+the server" even though the server is visible). The server must run as a **seed
+router** with a fixed net number, and the hint must match it. Full server steps,
+with rollback, are in **`netatalk-server-setup.md`**.
+
 ## Files
 
 - `01-system-prep.sh`    packages, ssh, OSS+analog audio, wifi off, dirs, ownership
@@ -148,7 +176,8 @@ all use it); only the pure `composite` mode turns HDMI off.
 - `03-boot-experience.sh [vga|composite|vga-composite]` boot splash + video mode
 - `04-kiosk-service.sh`  systemd unit: GSport on the console at boot
 - `05-serial-bridge.sh`  socat bridge: USB RS232 <-> GSport TCP serial port
-- `gsport.config.txt`    starter config (disk slots; RAM/accel/net via F4)
+- `gsport.config.txt`    starter config (disk slots; RAM/accel; AppleTalk keys)
+- `netatalk-server-setup.md`  server-side seed-router + UAM config, with rollback
 
 See `CAVEATS.md` for honest limits and the experimental/source-patch items.
 

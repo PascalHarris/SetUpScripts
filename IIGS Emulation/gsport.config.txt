@@ -6,7 +6,7 @@
 # CAPACITY (from this file): 15 images total
 #   slot 5 (3.5")      : s5d1, s5d2           = 2
 #   slot 6 (5.25")     : s6d1, s6d2           = 2
-#   slot 7 (SmartPort) : s7d1 .. s7d11        = 11   <-- all 11 used below
+#   slot 7 (SmartPort) : s7d1 .. s7d11        = 11
 # Volumes with a ProDOS/HFS filesystem appear as icons on the GS/OS desktop.
 
 # 3.5" and 5.25" drives (unused)
@@ -16,33 +16,47 @@ s6d1 =
 s6d2 =
 
 # --- SmartPort hard disks (slot 7) ---
-# BOOT: SmartPort boots unit 1 = s7d1. ActionGS is placed there per your setup.
-#   - If ActionGS boots GS/OS, you get the Finder desktop with ALL 11 volumes
-#     mounted as icons.
-#   - If ActionGS is a standalone self-booting game (no GS/OS Finder), you will
-#     NOT see a desktop. To get the desktop-with-all-volumes experience instead,
-#     swap System_6_0_4_and_Free_Games.hdv into s7d1.
+# BOOT: SmartPort boots unit 1 = s7d1. To boot the GS/OS system (Finder + the
+# AppleShare control panel needed for networking), put System_6_0_4 in s7d1.
 s7d1 = images/ActionGS.2mg
 s7d2 = images/System_6_0_4_and_Free_Games.hdv
 s7d3 = images/Productivity_and_Graphics.hdv
 s7d4 = images/Audio_and_Utilities.hdv
 s7d5 = images/HyperCard.hdv
-s7d6 = images/Graphics_n_Animation.hdv
+s7d6 = images/Graphics_&_Animation.hdv
 s7d7 = images/Communications.hdv
 s7d8 = images/Games_with_Path_Mods.hdv
 s7d9 = images/Action_Games.hdv
 s7d10 = images/Adventure_and_Sim_Games.hdv
 s7d11 = images/Board_Games_and_RPGs.hdv
 
-# RAM size, ZipGS acceleration, ROM selection and networking are set from the
-# F4 menu and persist here after Save. First-boot checklist:
-#   1. ROM File Selection          -> /opt/gsport/ROM   (ROM03 for AppleTalk)
-#   2. Memory                       -> max (GSport ceiling 14MB expansion)
-#   3. ZipGS / Speed                -> Unlimited for >=14MHz (read Eff MHz line)
-#   4. Ethernet Card Configuration  -> Uthernet in slot 3, interface = eth0
-#   5. Ethernet Card Configuration  -> AppleTalk Bridging = On, interface = eth0
-#   6. Serial Port Configuration    -> Port 1 (slot 2) = "Only use socket 6502"
+# --- Networking (persisted F4 settings; keys are the raw variable names) ---
+# AppleTalk bridging to a Netatalk AppleShare server (see netatalk-server-setup.md).
+g_appletalk_bridging = 1
+# Network number the bridge uses. Must match the server's seeded net.
+#   Server as a seed router with '-net 1'  -> set this to 1 (recommended).
+#   Server in the startup range (no router) -> the bridge usually can't connect.
+g_appletalk_network_hint = 1
+# Host interface index for the bridge/Uthernet. VERIFY against the "Interface
+# List:" shown in F4 -> Ethernet Card Configuration, then uncomment/set it:
+# g_ethernet_interface = 0
+# Uthernet card in slot 3 for TCP/IP (BBS via Marinetti). 0 = off, 1 = on.
+# Runs simultaneously with AppleTalk if you want both.
+g_ethernet = 0
+# Set to 1 to show AppleTalk diagnostics while debugging the bridge.
+g_appletalk_diagnostics = 0
+
+# RAM size, ZipGS acceleration and ROM selection are set from the F4 menu and
+# persist here after Save. First-boot checklist:
+#   1. ROM File Selection          -> /opt/gsport/ROM   (ROM03; required for AppleTalk)
+#   2. Memory                       -> keep <=8MB while stabilising (14MB patch can
+#                                      trip a non-canonical ROM); raise once stable
+#   3. ZipGS / Speed                -> 8.0MHz (Zip) for stable accel; Unlimited can
+#                                      break timing-sensitive software
+#   4. Ethernet Card Configuration  -> set "Use Interface Number" to your eth0
+#   5. Serial Port Configuration    -> Port 1 (slot 2) = "Only use socket 6502"
 #
 # Serial (slots 1/2), Uthernet (slot 3) and AppleTalk run simultaneously.
-# AppleTalk takes the printer port (slot 1); use the modem port (slot 2 / 6502)
-# for the RS232 bridge.
+# On ROM03, AppleTalk is enabled on the IIgs via Control Panel -> Slots ->
+# Slot 1 = AppleTalk (NOT slot 7). AppleTalk takes the printer port (slot 1);
+# use the modem port (slot 2 / socket 6502) for the RS232 bridge.
