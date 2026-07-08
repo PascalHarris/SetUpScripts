@@ -69,7 +69,11 @@ Hard-won gotchas from getting this working:
   net (65280) alone is usually NOT enough. See netatalk-server-setup.md.
 - **Login: use Guest first.** The IIgs only does guest/cleartext/randnum (not
   DHX/DHX2), and stock System 6.0.1's CDEV sends cleartext passwords wrongly, so
-  guest is the reliable first mount. Ensure afpd offers uams_guest.so.
+  guest is the reliable first mount. afpd needs `uams_guest.so` + `uams_clrtxt.so`
+  (usually already present). Do NOT add `uams_randnum.so` unless you've set up
+  `afppasswd` — advertising it un-configured makes old clients (SE, LC475, IIgs)
+  fail *after* a good GetStatus with "No response from the server". guest +
+  cleartext is normally all you need, so afpd.conf usually needs no change.
 - **Same physical segment.** EtherTalk is layer 2 — no routers between the Pi,
   the server, and any other AppleTalk machines.
 

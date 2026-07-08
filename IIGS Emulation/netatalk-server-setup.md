@@ -67,15 +67,31 @@ eth0 -router -phase 2 -net 1 -addr 1.100 -zone "A2"
 The IIgs only understands **guest**, **cleartext**, and **randnum** — not the
 DHX/DHX2 methods Netatalk prefers. Look at your default-server line in
 `afpd.conf` and make sure the UAM list includes `uams_guest.so` and
-`uams_clrtxt.so` (randnum optional). A known-good line:
+`uams_clrtxt.so`. A known-good line:
 
 ```
-- -transall -uamlist uams_guest.so,uams_clrtxt.so,uams_randnum.so,uams_dhx2.so -nosavepassword
+- -transall -uamlist uams_guest.so,uams_clrtxt.so,uams_dhx.so -mimicmodel RackMac
 ```
 
 - The leading `-` is the "default server" marker — keep it.
 - `-transall` enables both DDP (AppleTalk) and TCP.
-- Keeping `uams_dhx2.so` preserves modern-Mac logins; the IIgs just picks guest.
+- `uams_guest.so` + `uams_clrtxt.so` are all an old client needs (guest, or a
+  cleartext login). Keeping `uams_dhx.so`/`uams_dhx2.so` preserves modern-Mac
+  logins; the IIgs just picks guest or cleartext.
+
+> **Do NOT add `uams_randnum.so` unless you have actually configured it.**
+> randnum needs its own password database (`afppasswd`); advertising it without
+> that setup makes old clients (Mac SE, LC475, IIgs) fail *after* a successful
+> GetStatus with "No response from the server" — discovery works, the status
+> reply comes back, then the session silently dies. This was a real trap in
+> testing: adding randnum to a previously-working afpd.conf broke every old
+> client until it was removed. If you want passworded (non-guest) logins, either
+> set up `afppasswd` for randnum, or use cleartext with Marsha Jackson's patched
+> AppleTalk CDEV (stock System 6.0.1 sends cleartext passwords incorrectly).
+
+Note: most old clients (including the IIgs) are happy with just guest +
+cleartext, so in practice you usually do **not** need to touch `afpd.conf` at all
+for the IIgs — it is the network-number/seed-router side (Step 1) that matters.
 
 ---
 
@@ -195,10 +211,11 @@ exactly where you started.
 - **`nbplkup` still shows `65280.x`**: atalkd didn't accept the seed line —
   re-check `atalkd.conf` syntax and that you did a *full* restart. Check the
   atalkd log for a "seeding"/"router" line vs "config for no router".
-- **IIgs sees the server but login fails**: UAM issue (Step 2). Use Guest. For
-  passworded logins you need randnum (with `afppasswd`) or Marsha Jackson's
-  patched AppleTalk CDEV on the IIgs, because stock 6.0.1 sends cleartext
-  passwords incorrectly.
+- **IIgs sees the server but login fails**: UAM issue (Step 2). Use Guest. Do
+  NOT advertise `uams_randnum.so` unless `afppasswd` is configured — it breaks
+  the session after GetStatus for old clients. For passworded logins you need
+  randnum properly set up, or Marsha Jackson's patched AppleTalk CDEV on the
+  IIgs, because stock 6.0.1 sends cleartext passwords incorrectly.
 - **AppleTalk kernel module**: atalkd needs the kernel `appletalk` (DDP) module;
   it auto-loads or errors at start. If atalkd won't start, check
   `dmesg | grep -i appletalk` and that the module is present for your kernel.
