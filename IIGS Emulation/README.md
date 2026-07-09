@@ -149,9 +149,12 @@ Control Panel's **AppleShare** icon. Getting there involves both sides:
 GSport (host) side — F4 -> Ethernet Card Configuration:
 - **AppleTalk Bridging = On**, and **Use Interface Number** = your `eth0` (the
   screen prints an "Interface List:" with the numbers).
-- **AppleTalk Network Hint** = the server's AppleTalk net number (see below).
+- **AppleTalk Network Hint** = the server's seeded net number (see below).
   This lives under developer settings; it is easier to set in `config.txt` as
   `g_appletalk_network_hint = <n>` than to scroll the menu.
+- **Launch GSport with `sudo`** (or `setcap cap_net_raw,cap_net_admin+eip` on
+  `gsportfb`) — the bridge needs raw promiscuous access to `eth0` or it is
+  silently deaf and the server never appears. The kiosk service runs as root.
 
 IIgs (guest) side — boot GS/OS (the System 6.0.4 disk), then:
 - Control Panel (text, Ctrl-Open-Apple-Esc) -> **Slots** -> **Slot 1 = AppleTalk**.
@@ -163,11 +166,14 @@ IIgs (guest) side — boot GS/OS (the System 6.0.4 disk), then:
 - Apple menu -> **Control Panel** (graphical) -> **AppleShare** icon -> pick the
   server -> **log in as Guest first** (stock 6.0.1 has a cleartext-password bug).
 
-The network number: the GSport bridge cannot use a router-less AppleTalk network
-(it never learns a net number and directed sessions fail with "No response from
-the server" even though the server is visible). The server must run as a **seed
-router** with a fixed net number, and the hint must match it. Full server steps,
-with rollback, are in **`netatalk-server-setup.md`**.
+The network number (the crux): the IIgs can *discover* the server but can't
+*open a session* unless it learns its own AppleTalk network number, which it
+gets only from a **seed router's RTMP**. So the server must run as a seed
+**router** using the **default zone** — `-router -phase 2 -net 1 -addr 1.100
+-zone "*"` — and the GSport hint set to that net (`1`). A static hint alone does
+not work, and a *named* zone makes the server invisible to the IIgs. This
+config was verified with the IIgs, an LC475, and a modern Mac connected at once.
+Full server steps, with rollback, are in **`netatalk-server-setup.md`**.
 
 ## Telnet to BBSs (TCP/IP via Marinetti + Uthernet)
 

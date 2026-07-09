@@ -2,22 +2,39 @@
 
 ## Why this is needed
 
-The GSport AppleTalk bridge cannot cope with a **router-less** AppleTalk network.
-When there is no seed router, Netatalk parks itself in the *startup range*
-(`net 0-65534`, address `65280.x`), and native EtherTalk nodes like your Mac SE
-self-assign into that same range and talk fine. The GSport bridge, however,
-starts on net `0` and only learns a network number from a router's RTMP
-broadcasts — with nothing routing, it never learns one, so **discovery works but
-sessions fail** ("No response from the server"). Setting the GSport network hint
-to `65280` was not enough.
+The GSport AppleTalk bridge cannot form AFP **sessions** on a network where it
+can't learn its own AppleTalk network number. Discovery (NBP name lookup) is
+broadcast and works regardless — the server shows up in the IIgs AppleShare
+browser. But *opening* a session is directed traffic, and the emulated IIgs has
+to know its own network number to build the source address. It learns that
+number only from a **router's RTMP broadcasts**.
 
-The fix: make Netatalk a **seed router** with a small, fixed network number
-(net `1`). It then broadcasts RTMP, the bridge learns net `1`, and directed
-sessions address correctly.
+On a router-less network (Netatalk non-seed, sitting in the startup range
+`65280.x`), nothing broadcasts RTMP, so the bridge stays on net `0`. The IIgs
+then discovers the server but **never sends the session request** — it can't
+address it. A packet capture shows exactly this: `nbp-lkup`/`nbp-reply` succeed,
+then nothing is ever sent to the server's session socket (`.128`). The result is
+"No response from the server", against *any* server — including a genuine Mac's
+built-in File Sharing, which is how we confirmed the fault is the IIgs/bridge,
+not Netatalk.
 
-> This server currently works for your Mac SE, so **every change below is backed
-> up first and has an explicit rollback** at the end. The seed-router change is
-> transparent to the Mac SE — it re-homes to net 1 automatically — but if
+Two things that seemed like fixes but were NOT:
+- **A static network hint alone** (`g_appletalk_network_hint = 65280` or `0`)
+  does not work. It tells the bridge to *assume* a number; it does not make the
+  IIgs *learn* one, so the session is still never initiated.
+- **A named zone** (e.g. `-zone "A2"` / `-zone "AppleTalk"`) makes the server go
+  *invisible* to the IIgs — the bridge doesn't relay named zones to it.
+
+The fix that actually works (tested with the IIgs, an LC475 on 7.6.1, and a
+modern Mac all mounting simultaneously): run Netatalk as a **seed router** so it
+broadcasts RTMP, and use the **default zone `"*"`** so nothing is hidden. The
+bridge then learns the seeded net number, the IIgs addresses the session
+correctly, and it mounts. Set the GSport hint to the same net number to remove
+any doubt.
+
+> This server may already work for genuine Macs, so **every change below is
+> backed up first and has an explicit rollback** at the end. The seed-router
+> change is transparent to real Macs — they re-home automatically — but if
 > anything misbehaves, the rollback restores the exact prior state.
 
 ## Confirmed facts about your server
@@ -44,21 +61,29 @@ shape after a restart. That is normal; the `.bak` is your source of truth.
 
 ---
 
-## Step 1 — Make atalkd a seed router (fixes "No response")
+## Step 1 — Make atalkd a seed router with the default zone (fixes "No response")
 
 Edit `atalkd.conf` so the single interface line reads:
 
 ```
-eth0 -router -phase 2 -net 1 -addr 1.100 -zone "A2"
+eth0 -router -phase 2 -net 1 -addr 1.100 -zone "*"
 ```
 
-- `-router` makes atalkd seed the network and emit RTMP.
-- `-net 1` is the network number the bridge will use — remember it for the
-  GSport hint (Step 6).
+- `-router` makes atalkd seed the network and **broadcast RTMP** — this is the
+  active ingredient. RTMP is how the bridge learns the network number, which is
+  what lets the IIgs open a session instead of just discovering the name.
+- `-net 1` is the network number the bridge will learn — use it for the GSport
+  hint (Step 6).
 - `-addr 1.100` is the server's own node on net 1 (any free node works).
-- `-zone "A2"` names the zone the IIgs Chooser/AppleShare will show.
+- `-zone "*"` is the **default ("this cable") zone**. Use `"*"`, not a named
+  zone: the bridge does not relay a *named* zone to the IIgs, so a named zone
+  (`"A2"`, `"AppleTalk"`, etc.) makes the server go invisible in the IIgs
+  browser. `"*"` avoids that while still satisfying atalkd's requirement that a
+  Phase 2 seed name a zone.
 
-(This is the exact pattern the "IIgs via a Pi bridge" guides use.)
+Note: a fixed `-net` requires a zone, so you cannot "drop the zone" while keeping
+`-net 1` — atalkd won't start. `"*"` is the way to have a seed net without a
+named zone.
 
 ---
 
@@ -166,13 +191,33 @@ sudo pkill gsportfb
 grep -q '^g_appletalk_network_hint' /opt/gsport/config.txt \
   && sed -i 's/^g_appletalk_network_hint = .*/g_appletalk_network_hint = 1/' /opt/gsport/config.txt \
   || echo 'g_appletalk_network_hint = 1' >> /opt/gsport/config.txt
-cd /opt/gsport && ./gsportfb
+cd /opt/gsport && sudo ./gsportfb
 ```
+
+> **Launch GSport with `sudo`** (or apply `setcap`). The bridge needs raw,
+> promiscuous access to `eth0`; without it the bridge is silently deaf and the
+> server simply won't appear — this exact mistake made the server "vanish" in
+> testing. To avoid needing `sudo` every time, apply the capability once:
+> `sudo setcap cap_net_raw,cap_net_admin+eip /opt/gsport/gsportfb` (re-apply after
+> any rebuild, which clears it). The kiosk service runs as root, so it's only the
+> manual launch that needs this.
 
 Then on the IIgs: Control Panel → **AppleShare** → select the server → **log in
 as Guest first** (stock System 6.0.1 has a cleartext-password bug; guest proves
 the path end-to-end). Turn on GSport's **Show AppleTalk Diagnostics** and confirm
 the bridge now settles on net `1`.
+
+Confirm success by watching the wire on the server during the connect — this is
+the diagnostic that actually resolves problems here:
+
+```sh
+sudo tcpdump -i eth0 -n atalk
+```
+
+The IIgs should appear as a **`1.x`** node (it learned net 1 from RTMP) and send
+an `atp-req` to the server's session socket **`1.100.128`**. Discovery alone
+(`nbp-lkup`/`nbp-reply`) with nothing sent to `.128` means it still hasn't
+learned the net number — see troubleshooting.
 
 ---
 
@@ -205,20 +250,34 @@ exactly where you started.
 
 ## Troubleshooting
 
-- **Mac SE stops seeing the server after the change**: it may not have re-homed
-  yet — reboot the Mac SE, or roll back. A seed router changing the net number
-  mid-session can drop existing clients until they rejoin.
-- **`nbplkup` still shows `65280.x`**: atalkd didn't accept the seed line —
-  re-check `atalkd.conf` syntax and that you did a *full* restart. Check the
-  atalkd log for a "seeding"/"router" line vs "config for no router".
+Read the wire with `sudo tcpdump -i eth0 -n atalk` during a connect — it settled
+every problem here. Identify each machine by its address (the IIgs is a startup-
+range or `1.x` node; ignore an already-mounted Mac's ~10s keep-alive chatter).
+
+- **IIgs can't see the server at all**: almost always (a) GSport not launched
+  with `sudo`/`setcap` so the bridge is deaf, or (b) a **named zone** on the
+  seed line hiding it — use `-zone "*"`. Also confirm the F4 interface number is
+  your `eth0`.
+- **IIgs sees the server but "No response" on connect, and tcpdump shows
+  `nbp-lkup`/`nbp-reply` but NOTHING sent to socket `.128`**: the IIgs hasn't
+  learned its network number, so it can't open the session. This is *the* core
+  failure. Fix = a seed **router** actively broadcasting RTMP (`-router`, Step 1)
+  — a static `network_hint` alone does NOT fix it. Confirm the IIgs then shows as
+  a `1.x` node and sends an `atp-req` to `1.100.128`. If it *still* shows net 0
+  and never hits `.128` even with an RTMP router live on the wire, the bridge
+  isn't processing RTMP — that's the edge of GSport's AppleTalk bridge.
+- **The same failure against a genuine Mac's File Sharing** confirms the fault is
+  the IIgs/bridge, not the server — don't keep editing Netatalk in that case.
 - **IIgs sees the server but login fails**: UAM issue (Step 2). Use Guest. Do
   NOT advertise `uams_randnum.so` unless `afppasswd` is configured — it breaks
-  the session after GetStatus for old clients. For passworded logins you need
-  randnum properly set up, or Marsha Jackson's patched AppleTalk CDEV on the
-  IIgs, because stock 6.0.1 sends cleartext passwords incorrectly.
+  the session after GetStatus for old clients (this silently broke *all* old
+  clients in testing). For passworded logins, set randnum up properly, or use
+  Marsha Jackson's patched AppleTalk CDEV (stock 6.0.1 sends cleartext wrongly).
+- **Real Macs drop after the change**: they may not have re-homed — reboot them.
+  The default zone `"*"` and net 1 are transparent to them once rejoined.
 - **AppleTalk kernel module**: atalkd needs the kernel `appletalk` (DDP) module;
   it auto-loads or errors at start. If atalkd won't start, check
-  `dmesg | grep -i appletalk` and that the module is present for your kernel.
-- **Keep it single-segment**: the Pi/GSport, the server, and the Mac SE must be
-  on the same physical Ethernet (same switch/broadcast domain). EtherTalk is
+  `dmesg | grep -i appletalk`.
+- **Keep it single-segment**: the Pi/GSport, the server, and any real Macs must
+  be on the same physical Ethernet (same switch/broadcast domain). EtherTalk is
   layer 2 and will not cross a router.

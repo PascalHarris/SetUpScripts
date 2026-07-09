@@ -32,10 +32,13 @@ s7d11 = images/Board_Games_and_RPGs.hdv
 
 # --- Networking (persisted F4 settings; keys are the raw variable names) ---
 # AppleTalk bridging to a Netatalk AppleShare server (see netatalk-server-setup.md).
+# NOTE: launch GSport with sudo (or setcap on gsportfb) or the bridge is deaf and
+# the server won't appear. The kiosk service runs as root, so it's fine there.
 g_appletalk_bridging = 1
-# Network number the bridge uses. Must match the server's seeded net.
-#   Server as a seed router with '-net 1'  -> set this to 1 (recommended).
-#   Server in the startup range (no router) -> the bridge usually can't connect.
+# Network number the bridge learns. The server MUST run as a seed router
+# (atalkd '-router ... -net 1 -zone "*"') so it broadcasts RTMP; the bridge
+# learns the number from that. Set this to match the seeded net (1). A static
+# hint WITHOUT an RTMP router does not work; a NAMED zone hides the server.
 g_appletalk_network_hint = 1
 # Host interface index for the bridge/Uthernet. VERIFY against the "Interface
 # List:" shown in F4 -> Ethernet Card Configuration, then uncomment/set it:

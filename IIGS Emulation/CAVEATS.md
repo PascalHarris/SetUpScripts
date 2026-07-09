@@ -60,13 +60,16 @@ Hard-won gotchas from getting this working:
   Control Panel, not a Chooser menu. If it's missing, install "Network:
   AppleShare" from the GS/OS Installer (AFP Mounter erroring about missing
   AppleTalk components is the tell).
-- **Network number is the usual failure.** The bridge starts on net 0 and learns
-  its number only from a seed router's RTMP. On a router-less network the server
-  sits in the startup range (65280.x) and the bridge can't open sessions -> the
-  server is *visible* but selecting it gives "No response from the server".
-  Fix: run the server as a seed router with a fixed net (e.g. net 1) and set
-  GSport's `g_appletalk_network_hint` to match. Setting the hint to the startup
-  net (65280) alone is usually NOT enough. See netatalk-server-setup.md.
+- **Network number is the usual failure.** The bridge can only open a session if
+  it learns its AppleTalk network number, which it does only from a **seed
+  router's RTMP**. On a router-less network it never learns one -> the server is
+  *visible* but selecting it gives "No response from the server" (tcpdump shows
+  discovery succeeding, then nothing sent to the server's `.128` socket). Fix:
+  run the server as a seed **router** with the **default zone** (`-router ...
+  -net 1 -zone "*"`) and set `g_appletalk_network_hint` to that net. A static
+  hint alone does NOT work (it doesn't make the IIgs *learn* a number), and a
+  *named* zone makes the server invisible to the IIgs. Also: launch GSport with
+  `sudo`/`setcap` or the bridge is deaf. See netatalk-server-setup.md.
 - **Login: use Guest first.** The IIgs only does guest/cleartext/randnum (not
   DHX/DHX2), and stock System 6.0.1's CDEV sends cleartext passwords wrongly, so
   guest is the reliable first mount. afpd needs `uams_guest.so` + `uams_clrtxt.so`
