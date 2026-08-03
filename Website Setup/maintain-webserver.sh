@@ -3,6 +3,8 @@
 # Web Server Maintenance Script
 # Handles database backup, site backup, and SSL certificate renewal
 #
+# Requires on the HOST running this script: docker, docker-compose, curl, tar
+#
 # Usage: ./maintain-webserver.sh [--config /path/to/setup.cfg]
 #
 
@@ -37,6 +39,9 @@ fi
 eval "$(grep -v '^\s*#' "$CONFIG_FILE" | grep -v '^\s*$')"
 
 # Validate required configuration variables
+# NOTE: DB_CONTAINER should now be the docker-compose SERVICE name (e.g.
+# "maria-db" as defined in lemp-compose/docker-compose.yml), not a raw
+# container name -- see the DB backup step below for why.
 REQUIRED_VARS=(
     "COMPOSE_HOME"
     "MAINT_HOME"
@@ -53,6 +58,16 @@ for var in "${REQUIRED_VARS[@]}"; do
         exit 1
     fi
 done
+
+# FIX: SITES is an array, so it can't go through the scalar REQUIRED_VARS
+# check above (indirect expansion of an array name doesn't test emptiness
+# correctly). Validate it separately so a missing/empty SITES in the
+# config fails with a clear message instead of an "unbound variable"
+# error later under `set -u`.
+if [ "${#SITES[@]:-0}" -eq 0 ]; then
+    echo "ERROR: No SITES defined in $CONFIG_FILE"
+    exit 1
+fi
 
 # Function to retrieve database password securely
 get_db_password() {
@@ -118,6 +133,13 @@ if [ ! -d "$MAINT_HOME" ]; then
     exit 1
 fi
 
+# FIX: anchor every relative operation below (docker-compose commands,
+# the site tar backup) to $COMPOSE_HOME explicitly, instead of relying on
+# the caller's current directory. `docker-compose exec` (used for the DB
+# backup below) also needs to run from the compose file's directory to
+# resolve the project.
+cd "$COMPOSE_HOME"
+
 log "Site maintenance starting"
 
 # Retrieve database password securely
@@ -136,15 +158,28 @@ EOF
 
 rm -f "$COMPOSE_HOME/db-data/db_backup.sql"
 chmod +x "$COMPOSE_HOME/db-data/backupdb.sh"
-docker exec -i -t --user root "$DB_CONTAINER" bash -lc /bitnami/backupdb.sh
+# FIX: address the DB service by its docker-compose SERVICE name rather
+# than a container name. Compose's container-naming scheme has changed
+# before (v1 "project_service_N" -> v2 "project-service-N"), which
+# silently breaks a hardcoded/stale container name -- the service name in
+# docker-compose.yml doesn't change. -T also drops TTY allocation, which
+# `-i -t` would otherwise require and which fails under cron/unattended
+# execution ("the input device is not a TTY").
+docker-compose exec -T --user root "$DB_CONTAINER" bash -lc /bitnami/backupdb.sh
 
 # Backup Site
 log "Backing up site files"
 backup_date=$(date +"%Y%m%d_%H%M%S")
 backup_file="site_backup_${backup_date}.tar.gz"
-tar cpzf "$backup_file" . \
+# FIX: --exclude/--exclude-from must precede the source path (".") -- GNU
+# tar treats them as positional and silently ignores them (now errors)
+# when they appear after non-option arguments, which was also causing
+# "file changed as we read it" (the growing archive was being read back
+# into itself since its own exclude never took effect).
+tar cpzf "$backup_file" \
     --exclude="$backup_file" \
-    --exclude-from <(find . -size +"${BACKUP_MAX_FILE_SIZE:-100M}")
+    --exclude-from <(find . -size +"${BACKUP_MAX_FILE_SIZE:-100M}") \
+    .
 chown "$OWNER_ACCOUNT:$OWNER_ACCOUNT" "$backup_file"
 log "Backup created: $backup_file"
 
@@ -154,7 +189,12 @@ cd "$COMPOSE_HOME"
 docker-compose stop
 
 cd "$MAINT_HOME"
-docker-compose up -d
+# FIX: docker-compose only recreates a container when its config changes,
+# not on every `up`, so this can silently keep reusing a months-old image
+# whose OS/package repos have since gone EOL or changed underneath it.
+# Pull + force-recreate guarantees a current image every run.
+docker-compose pull
+docker-compose up -d --force-recreate
 sleep 5
 
 certdir="$COMPOSE_HOME/certificates"
@@ -175,7 +215,15 @@ no_domains_found=true
 fullcommand=""
 
 for site in "${SITES[@]}"; do
-    command="lego --http --email=\"$SUPPORT_EMAIL\" "
+    # FIX: lego v5 moved these from global flags (before the sub-command)
+    # to command-level flags placed AFTER "run". See:
+    # https://ldez.github.io/blog/2026/05/11/lego-v5/
+    #   v4:  lego --http --email=... --domains=... --path=... run
+    #   v5:  lego run --http --email=... --domains=... --path=...
+    # --accept-tos added defensively: a fresh /etc/lego with no existing
+    # account will need ToS acceptance to register. Drop it if /etc/lego
+    # is a persistent volume with an already-registered account.
+    command="lego run --http --accept-tos --email=\"$SUPPORT_EMAIL\" "
     domain_found=false
     
     # Split domains by semicolon
@@ -193,7 +241,7 @@ for site in "${SITES[@]}"; do
     done
     
     if [ "$domain_found" = true ]; then 
-        command="${command}--path=\"/etc/lego\" run"
+        command="${command}--path=\"/etc/lego\""
         fullcommand="${fullcommand}${command}"$'\n'
     fi
 done
@@ -203,6 +251,45 @@ if [ "$no_domains_found" = true ]; then
     exit 1
 fi
 
+# FIX: the maintenance container's base OS/package manager has changed
+# under this script before (Debian Buster going EOL, then an apparent
+# move to a tdnf/Photon-based image), breaking the in-container
+# wget/curl/xz-utils install each time it happens. Fetch and extract the
+# lego binary on the HOST instead -- which we control, and which already
+# has working curl + tar (proven by the site backup step above) -- then
+# hand the binary to the container with `docker cp`. The container's
+# package manager is no longer involved in this step at all.
+log "Fetching lego release on host"
+lego_tmp=$(mktemp -d)
+lego_url=$(curl -s https://api.github.com/repositories/37038121/releases/latest \
+    | grep browser_download_url \
+    | grep linux_amd64 \
+    | grep -v '\.sbom\.' \
+    | cut -d '"' -f 4 \
+    | head -n 1 || true)
+# The `|| true` above stops a failed/empty pipeline from tripping
+# `set -e pipefail` right here -- we want to reach the explicit check
+# below and log a clear error instead of a bare pipeline failure.
+
+if [ -z "$lego_url" ]; then
+    log_error "Could not determine the latest lego download URL"
+    rm -rf "$lego_tmp"
+    exit 1
+fi
+
+curl -sL "$lego_url" -o "$lego_tmp/lego.tar.gz"
+tar -xzf "$lego_tmp/lego.tar.gz" -C "$lego_tmp" lego
+
+if [ ! -x "$lego_tmp/lego" ]; then
+    log_error "lego binary not found after extracting release archive"
+    rm -rf "$lego_tmp"
+    exit 1
+fi
+
+docker cp "$lego_tmp/lego" "$maint_id":/tmp/lego
+docker exec --user root "$maint_id" bash -lc "mv /tmp/lego /usr/local/bin/lego && chmod +x /usr/local/bin/lego"
+rm -rf "$lego_tmp"
+
 # Create and execute certificate renewal script
 log "Creating certificate renewal script"
 cat > ./public/updatecerts.sh <<EOF
@@ -210,24 +297,7 @@ cat > ./public/updatecerts.sh <<EOF
 set -e
 
 mkdir -p /etc/lego/certificates
-rm -f /etc/lego/certificates/*
-cd /tmp
-rm -f *
-
-# Install required packages
-install_packages wget xz-utils
-
-# Download and install lego
-curl -s https://api.github.com/repositories/37038121/releases/latest \\
-    | grep browser_download_url \\
-    | grep linux_amd64 \\
-    | cut -d '"' -f 4 \\
-    | wget -i -
-
-mv *.tar.gz lego.tar.gz
-tar -xf lego.tar.gz
-mv lego /usr/local/bin/lego
-rm -f *
+rm -rf /etc/lego/certificates/*
 
 # Run certificate renewals
 $fullcommand
@@ -239,7 +309,11 @@ EOF
 chmod +x ./public/updatecerts.sh
 
 log "Executing certificate renewal script"
-docker exec -i -t --user root "$maint_id" bash -lc ./updatecerts.sh
+# FIX: dropped -t (TTY allocation). This script is designed to run
+# unattended (config file, structured logging, non-interactive password
+# handling), and `docker exec -t` fails with "the input device is not a
+# TTY" when there's no controlling terminal, e.g. under cron.
+docker exec -i --user root "$maint_id" bash -lc ./updatecerts.sh
 
 # Backup and update certificates
 log "Updating certificate locations"
