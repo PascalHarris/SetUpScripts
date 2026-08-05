@@ -21,8 +21,10 @@
 #   2. dtoverlay=vc4-kms-vga666 -- the correct KMS overlay for a VGA666 board
 #      (legacy vga666/dpi24/dpi_mode/display_default_lcd are IGNORED under KMS).
 #   3. gpio=2-21=a2  -- Pi 4 pinmux: forces GPIO 2-21 into DPI (ALT2) mode.
-#   The connector is named VGA-1 (NOT DPI-1) and comes up at 640x480 with no
-#   video= line needed. I2C/SPI must be off (they share GPIO 2/3 with DPI).
+#   The connector is named VGA-1 (NOT DPI-1). It advertises several modes and
+#   KMS picks the LARGEST (e.g. 1024x768), which boxes GSport's 640x480 image in
+#   a black border -- so this mode pins it with video=VGA-1:640x480@60. I2C/SPI
+#   must be off (they share GPIO 2/3 with DPI).
 #
 # MIRRORING REALITY: GSport draws to ONE framebuffer (/dev/fb0). VGA(DPI),
 #   composite and HDMI are separate KMS connectors with incompatible modes, so
@@ -99,12 +101,14 @@ case "$MODE" in
     sed -i 's/^dtparam=i2c_arm=on/dtparam=i2c_arm=off/; s/^dtparam=spi=on/dtparam=spi=off/' "$CONFIG_TXT"
     # (2) overlay + (3) Pi 4 pinmux, in a managed [all] block
     write_block 'dtoverlay=vc4-kms-vga666\ngpio=2-21=a2'
-    # No video= line: the VGA-1 connector comes up at 640x480 on its own.
-    # HDMI left ENABLED (proven-working state); GSport (/dev/fb0) shows on VGA-1.
-    echo "  VGA666 DPI hat -> connector VGA-1 @ 640x480 (HDMI left enabled)."
+    # Pin VGA-1 to 640x480. The connector advertises several modes (up to
+    # 1024x768) and KMS defaults to the LARGEST, which leaves GSport's 640x480
+    # image in a small black-bordered box. Pinning matches the framebuffer to
+    # the IIgs native size so the picture fills the screen.
+    sed -i 's/$/ video=VGA-1:640x480@60/' "$CMDLINE"
+    echo "  VGA666 DPI hat -> connector VGA-1 pinned to 640x480 (HDMI left enabled)."
     echo "  Uses GPIO 2-21; I2C/SPI on those pins forced off."
     echo "  RGB666 renders as ~RGB444 on Pi 4 (mild banding) -- OK for retro."
-    echo "  If a fussy VGA monitor won't sync, add: video=VGA-1:640x480@60 to cmdline.txt"
     ;;
   composite)
     set_kv disable_fw_kms_setup 1
@@ -140,6 +144,14 @@ for f in quiet splash logo.nologo vt.global_cursor_default=0 \
          loglevel=0 consoleblank=0 plymouth.ignore-serial-consoles; do
   grep -qw -- "$f" "$CMDLINE" || sed -i "s/\$/ $f/" "$CMDLINE"
 done
+# Send kernel/boot messages to an UNUSED vt (tty3) so the visible console (tty1,
+# where the blue plymouth splash and then GSport live) stays clean. This is the
+# key fix for stray Linux text flashing up before the blue screen.
+if grep -qw 'console=tty1' "$CMDLINE"; then
+  sed -i 's/\bconsole=tty1\b/console=tty3/' "$CMDLINE"
+elif ! grep -qw 'console=tty3' "$CMDLINE"; then
+  sed -i 's/$/ console=tty3/' "$CMDLINE"
+fi
 sed -i 's/  */ /g' "$CMDLINE"
 
 # --- verify the video config physically landed (lesson learned!) ------------
