@@ -72,7 +72,7 @@ chmod +x *.sh
 sudo ./01-system-prep.sh                 # packages, ssh, OSS+analog audio, wifi off, ownership
 sudo ./02-build-gsport.sh                # build GSport fb (Uthernet+AppleTalk), setcap
 #  --> SANITY CHECK (below) before continuing
-sudo ./03-boot-experience.sh vga         # blue boot + VGA  (or: composite | vga-composite)
+sudo ./03-boot-experience.sh vga         # blue boot + VGA  (or: dpi-vga | composite | vga-composite)
 sudo ./04-kiosk-service.sh               # launch GSport on tty1 at boot
 sudo ./05-serial-bridge.sh /dev/ttyUSB0 9600 6502   # OPTIONAL USB RS232 bridge
 # copy ROM03 to /opt/gsport/ROM, copy disk images to /opt/gsport/images
@@ -130,14 +130,23 @@ Depends on the mode you pass to `03-boot-experience.sh`:
   HDMI. Not blocked.**
 - `vga-composite`: HDMI/VGA remains the primary output, composite is the
   experimental extra. **HDMI monitor works. Not blocked.**
+- `dpi-vga` (GPIO VGA666 hat): brings the hat up via KMS as connector `VGA-1` at
+  640x480 (tested on a Kiro VGA666 + Pi 4). HDMI stays **enabled** as a
+  connector, so an HDMI monitor still works for setup; GSport's `/dev/fb0` shows
+  on the hat. Needs three config lines (`disable_fw_kms_setup=0`,
+  `dtoverlay=vc4-kms-vga666`, `gpio=2-21=a2`) which the script writes and prints
+  back to confirm they landed. **HDMI not blocked.**
 - `composite`: this adds `dtoverlay=vc4-kms-v3d,composite`, and that overlay
   parameter **disables HDMI entirely** on the Pi. An HDMI monitor will show
   nothing -- only the composite (TRRS) output is live. **This mode DOES block
   HDMI.** Switch back with `sudo ./03-boot-experience.sh vga` (+ reboot) or the
   generated `/opt/gsport/revert-video.sh`.
 
-So: keep an HDMI monitor for setup/testing (default and vga/vga-composite modes
-all use it); only the pure `composite` mode turns HDMI off.
+So: keep an HDMI monitor for setup/testing (`vga`/`vga-composite` use it); the
+So: keep an HDMI monitor for setup/testing (`vga`, `dpi-vga` and `vga-composite`
+all leave HDMI usable); only the pure `composite` mode turns HDMI off. There is
+no live mirror across outputs (see CAVEATS §2) -- GSport draws to one framebuffer;
+pick one output per boot; switching is one command.
 
 ---
 
@@ -193,6 +202,7 @@ Full steps, with rollback, in **`marinetti-bbs-setup.md`**.
 - `03-boot-experience.sh [vga|composite|vga-composite]` boot splash + video mode
 - `04-kiosk-service.sh`  systemd unit: GSport on the console at boot
 - `05-serial-bridge.sh`  socat bridge: USB RS232 <-> GSport TCP serial port
+- `06-keyboard-remap.sh`  keyd: Command/Option swap, F-key layer, reset combos (compact ADB kbd)
 - `gsport.config.txt`    starter config (disk slots; RAM/accel; AppleTalk+Uthernet keys)
 - `netatalk-server-setup.md`  server-side seed-router + UAM config, with rollback
 - `marinetti-bbs-setup.md`    TCP/IP for BBSs (Marinetti + Uthernet I), with rollback
