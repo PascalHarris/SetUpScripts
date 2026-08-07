@@ -72,7 +72,8 @@ chmod +x *.sh
 sudo ./01-system-prep.sh                 # packages, ssh, OSS+analog audio, wifi off, ownership
 sudo ./02-build-gsport.sh                # build GSport fb (Uthernet+AppleTalk), setcap
 #  --> SANITY CHECK (below) before continuing
-sudo ./03-boot-experience.sh vga         # blue boot + VGA  (or: dpi-vga | composite | vga-composite)
+sudo ./03-boot-experience.sh             # blue boot; default = dpi-vga (VGA666 hat, 640x480)
+#  or: sudo ./03-boot-experience.sh vga | composite | vga-composite
 sudo ./04-kiosk-service.sh               # launch GSport on tty1 at boot
 sudo ./05-serial-bridge.sh /dev/ttyUSB0 9600 6502   # OPTIONAL USB RS232 bridge
 # copy ROM03 to /opt/gsport/ROM, copy disk images to /opt/gsport/images

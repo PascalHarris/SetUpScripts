@@ -1,44 +1,32 @@
 #!/usr/bin/env bash
 #
-# 03-boot-experience.sh [vga|dpi-vga|composite|vga-composite]
+# 03-boot-experience.sh [dpi-vga|vga]
 #
-# Boots silently behind a solid blue screen (no rainbow splash, no Linux boot
-# text) until the kiosk service starts GSport, and selects the video output.
+# Blue boot splash + quiet boot, and pins the video output to 640x480.
 #
-#   vga            (DEFAULT) VGA via an HDMI->VGA adapter, 640x480. Rock solid.
-#   dpi-vga        VGA via a GPIO VGA666 (DPI) hat. TESTED on a Kiro VGA666 +
-#                  Pi 4 / Bookworm. Brings up the KMS "VGA-1" connector at
-#                  640x480; HDMI stays enabled as a connector. See notes below.
-#   composite      Composite (TRRS jack), PAL. HDMI/VGA disabled.
-#   vga-composite  EXPERIMENTAL, Pi 4 only: VGA (HDMI) as primary, AND an
-#                  attempt to bring composite up as a SECOND connector.
-#                  config.txt/cmdline only -> fully reversible, cannot brick
-#                  boot. If the stack refuses, you simply get VGA (harmless).
+#   dpi-vga  (DEFAULT) GPIO VGA666 hat. Ensures the vc4-kms-vga666 overlay + the
+#            gpio=2-21=a2 pinmux are present (adds them only if missing), and pins
+#            the KMS "VGA-1" connector to 640x480 (it defaults to 1024x768).
+#   vga      HDMI->VGA adapter path, pins "HDMI-A-1" to 640x480.
 #
-# WHAT MADE dpi-vga WORK (all three were needed; each alone = black screen):
-#   1. disable_fw_kms_setup=0  -- Bookworm defaults this to 1, which stops the
-#      firmware setting up the DPI pipeline. Must be 0 for VGA666.
-#   2. dtoverlay=vc4-kms-vga666 -- the correct KMS overlay for a VGA666 board
-#      (legacy vga666/dpi24/dpi_mode/display_default_lcd are IGNORED under KMS).
-#   3. gpio=2-21=a2  -- Pi 4 pinmux: forces GPIO 2-21 into DPI (ALT2) mode.
-#   The connector is named VGA-1 (NOT DPI-1). It advertises several modes and
-#   KMS picks the LARGEST (e.g. 1024x768), which boxes GSport's 640x480 image in
-#   a black border -- so this mode pins it with video=VGA-1:640x480@60. I2C/SPI
-#   must be off (they share GPIO 2/3 with DPI).
+# DESIGN NOTE (learned the hard way): this script is deliberately MINIMAL and
+# ADDITIVE. It does NOT rewrite your config.txt structure, does NOT touch
+# disable_fw_kms_setup, and does NOT change the console= setting. An earlier
+# version did all three and blacked out the display; those behaviours are gone.
+# The only file it changes structurally is cmdline.txt (the video= pin), plus
+# adding the two overlay lines to config.txt if (and only if) they are absent.
 #
-# MIRRORING REALITY: GSport draws to ONE framebuffer (/dev/fb0). VGA(DPI),
-#   composite and HDMI are separate KMS connectors with incompatible modes, so
-#   there is no clean simultaneous mirror -- pick ONE output; switching is a
-#   one-command re-run. HDMI is a reboot-time fallback. (See CAVEATS.md.)
+# Composite / vga-composite modes were removed from this rebuild -- they required
+# the risky config.txt rewriting. They can be re-added and tested separately.
 #
-# The blue value lives in ONE place below; tune it against a reference photo.
+# Always run with a way to roll back: it backs up both files first, and the
+# reset only ever touches cmdline video= tokens.
 
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)." >&2; exit 1; }
 
-MODE="${1:-vga}"
-BLUE_HEX="1B3FBF"            # <-- tune this one value
-R="0.106"; G="0.247"; B="0.749"   # plymouth floats for #1B3FBF
+MODE="${1:-dpi-vga}"
+R="0.106"; G="0.247"; B="0.749"   # plymouth floats for #1B3FBF (blue)
 
 BOOT_DIR="/boot/firmware"; [[ -d "$BOOT_DIR" ]] || BOOT_DIR="/boot"
 CONFIG_TXT="$BOOT_DIR/config.txt"
@@ -46,122 +34,47 @@ CMDLINE="$BOOT_DIR/cmdline.txt"
 ts=$(date +%s)
 cp "$CONFIG_TXT" "$CONFIG_TXT.bak.$ts"
 cp "$CMDLINE"    "$CMDLINE.bak.$ts"
-echo "[03] backups: *.bak.$ts"
-
-# --- config.txt helpers -----------------------------------------------------
-# NOTE: config.txt has conditional sections ([cm4], [cm5], [all], ...). Our
-# additive lines go in a delimited block under an explicit [all] so a section
-# filter can't swallow them, and so we can remove them cleanly on the next run.
-MARK_BEGIN="# BEGIN iigs-video managed block"
-MARK_END="# END iigs-video managed block"
-
-# Replace-or-append a firmware key=value (edits in place if the key exists).
-set_kv() {
-  local k="$1" v="$2"
-  if grep -qE "^#?$k=" "$CONFIG_TXT"; then
-    sed -i "s/^#\?$k=.*/$k=$v/" "$CONFIG_TXT"
-  else
-    echo "$k=$v" >> "$CONFIG_TXT"
-  fi
-}
-
-strip_block() { sed -i "/^$MARK_BEGIN\$/,/^$MARK_END\$/d" "$CONFIG_TXT"; }
-
-# write_block "<line1>\n<line2>..."  -- fresh managed [all] block at end of file
-write_block() {
-  { printf '\n%s\n[all]\n' "$MARK_BEGIN"
-    printf '%b\n' "$1"
-    printf '%s\n' "$MARK_END"; } >> "$CONFIG_TXT"
-}
-
-# --- reset any prior video state so modes switch cleanly --------------------
-strip_block
-sed -i 's/^\(dtoverlay=vc4-kms-v3d\),composite/\1/' "$CONFIG_TXT"
-sed -i 's/^\(dtoverlay=vc4-kms-v3d\),nohdmi/\1/'    "$CONFIG_TXT"
-sed -i 's/ vc4.tv_norm=[A-Z]*//g; s# video=Composite-1:[^ ]*##g; s# video=HDMI-A-1:[^ ]*##g; s# video=VGA-1:[^ ]*##g; s# video=DPI-1:[^ ]*##g' "$CMDLINE"
-sed -i 's/  */ /g; s/ *$//' "$CMDLINE"
-
-echo "[03] firmware: kill rainbow splash"
-set_kv disable_splash 1
+echo "[03] backups: *.bak.$ts   (roll back: cp those over config.txt/cmdline.txt)"
 
 echo "[03] video mode: $MODE"
 case "$MODE" in
-  vga)
-    set_kv disable_fw_kms_setup 1     # stock default; HDMI path is happy with it
-    set_kv enable_tvout 0
-    set_kv hdmi_force_hotplug 1       # output even if the VGA dongle gives no EDID
-    sed -i 's/$/ video=HDMI-A-1:640x480M@60/' "$CMDLINE"
-    echo "  VGA-over-HDMI 640x480; use an active HDMI->VGA adapter"
-    ;;
   dpi-vga)
-    # GPIO VGA666 hat (DPI) -- TESTED config. All three lines below are required.
-    set_kv disable_fw_kms_setup 0     # (1) let firmware set up the DPI pipeline
-    set_kv enable_tvout 0
-    # I2C/SPI share GPIO 2/3 with the DPI bus -- make sure they are OFF.
-    sed -i 's/^dtparam=i2c_arm=on/dtparam=i2c_arm=off/; s/^dtparam=spi=on/dtparam=spi=off/' "$CONFIG_TXT"
-    # (2) overlay + (3) Pi 4 pinmux, in a managed [all] block
-    write_block 'dtoverlay=vc4-kms-vga666\ngpio=2-21=a2'
-    # Pin VGA-1 to 640x480. The connector advertises several modes (up to
-    # 1024x768) and KMS defaults to the LARGEST, which leaves GSport's 640x480
-    # image in a small black-bordered box. Pinning matches the framebuffer to
-    # the IIgs native size so the picture fills the screen.
+    # Ensure overlay + pinmux exist -- ADD ONLY IF MISSING; never reorganise.
+    if ! grep -q '^dtoverlay=vc4-kms-vga666' "$CONFIG_TXT"; then
+      printf '\n[all]\n# VGA666 DPI hat\ndtoverlay=vc4-kms-vga666\ngpio=2-21=a2\n' >> "$CONFIG_TXT"
+      echo "  added vc4-kms-vga666 + gpio=2-21=a2 (were missing)"
+    else
+      grep -q '^gpio=2-21=a2' "$CONFIG_TXT" || echo 'gpio=2-21=a2' >> "$CONFIG_TXT"
+      echo "  overlay already present -- config.txt left untouched"
+    fi
+    # Pin VGA-1 to 640x480 (defaults to 1024x768). Drop any stale VGA-1 / inert HDMI pin.
+    sed -i 's# video=VGA-1:[^ ]*##g; s# video=HDMI-A-1:[^ ]*##g' "$CMDLINE"
     sed -i 's/$/ video=VGA-1:640x480@60/' "$CMDLINE"
-    echo "  VGA666 DPI hat -> connector VGA-1 pinned to 640x480 (HDMI left enabled)."
-    echo "  Uses GPIO 2-21; I2C/SPI on those pins forced off."
-    echo "  RGB666 renders as ~RGB444 on Pi 4 (mild banding) -- OK for retro."
+    echo "  VGA-1 pinned to 640x480"
     ;;
-  composite)
-    set_kv disable_fw_kms_setup 1
-    set_kv enable_tvout 1
-    sed -i 's/^\(dtoverlay=vc4-kms-v3d\)\([^,].*\)\?$/\1,composite/' "$CONFIG_TXT"
-    grep -q '^dtoverlay=vc4-kms-v3d,composite' "$CONFIG_TXT" || \
-      echo 'dtoverlay=vc4-kms-v3d,composite' >> "$CONFIG_TXT"
-    sed -i 's/$/ vc4.tv_norm=PAL/' "$CMDLINE"
-    echo "  composite (PAL); HDMI disabled in this mode"
+  vga)
+    # HDMI->VGA adapter. Does NOT remove the VGA666 overlay if present -- to make
+    # HDMI the sole output, delete the vga666/gpio lines from config.txt by hand.
+    sed -i 's# video=HDMI-A-1:[^ ]*##g; s# video=VGA-1:[^ ]*##g' "$CMDLINE"
+    sed -i 's/$/ video=HDMI-A-1:640x480@60/' "$CMDLINE"
+    echo "  HDMI-A-1 pinned to 640x480 (use an active HDMI->VGA adapter)"
     ;;
-  vga-composite)
-    # EXPERIMENTAL: keep HDMI/VGA and ASK for composite as an additional
-    # connector. Reversible; if the stack refuses, you get VGA only.
-    set_kv disable_fw_kms_setup 1
-    set_kv enable_tvout 1
-    set_kv hdmi_force_hotplug 1
-    sed -i 's/$/ video=HDMI-A-1:640x480M@60/' "$CMDLINE"
-    sed -i 's/$/ video=Composite-1:720x576@50i vc4.tv_norm=PAL/' "$CMDLINE"
-    cat > /opt/gsport/revert-video.sh <<EOF
-#!/usr/bin/env bash
-# One-shot revert to plain VGA if vga-composite misbehaves.
-sudo $(readlink -f "$0") vga && echo "Reverted to VGA. Reboot."
-EOF
-    chmod +x /opt/gsport/revert-video.sh
-    echo "  EXPERIMENTAL vga-composite set (VGA primary + composite attempt)."
-    echo "  Verify with a monitor attached. Revert: /opt/gsport/revert-video.sh"
-    ;;
-  *) echo "usage: $0 [vga|dpi-vga|composite|vga-composite]" >&2; exit 2 ;;
+  *) echo "usage: $0 [dpi-vga|vga]" >&2; exit 2 ;;
 esac
 
-echo "[03] quiet boot + no cursor (cmdline.txt, single line)"
+echo "[03] quiet boot (additive; console left as-is)"
 for f in quiet splash logo.nologo vt.global_cursor_default=0 \
          loglevel=0 consoleblank=0 plymouth.ignore-serial-consoles; do
   grep -qw -- "$f" "$CMDLINE" || sed -i "s/\$/ $f/" "$CMDLINE"
 done
-# Send kernel/boot messages to an UNUSED vt (tty3) so the visible console (tty1,
-# where the blue plymouth splash and then GSport live) stays clean. This is the
-# key fix for stray Linux text flashing up before the blue screen.
-if grep -qw 'console=tty1' "$CMDLINE"; then
-  sed -i 's/\bconsole=tty1\b/console=tty3/' "$CMDLINE"
-elif ! grep -qw 'console=tty3' "$CMDLINE"; then
-  sed -i 's/$/ console=tty3/' "$CMDLINE"
-fi
-sed -i 's/  */ /g' "$CMDLINE"
+sed -i 's/  */ /g; s/ *$//' "$CMDLINE"
 
-# --- verify the video config physically landed (lesson learned!) ------------
-echo "[03] verify -- these lines are now in $CONFIG_TXT / $CMDLINE:"
-grep -nE 'disable_fw_kms_setup|enable_tvout|hdmi_force_hotplug|dtoverlay=vc4-kms|gpio=2-21' "$CONFIG_TXT" \
-  | sed 's/^/    config.txt:/'
-echo "    cmdline.txt: $(cat "$CMDLINE")"
-echo "    (reboot, then check: for c in /sys/class/drm/card*-*; do echo \$c \$(cat \$c/status); done)"
+echo "[03] verify -- confirm BEFORE rebooting:"
+echo "    cmdline: $(cat "$CMDLINE")"
+echo "    config vga666: $(grep -c '^dtoverlay=vc4-kms-vga666' "$CONFIG_TXT") line(s)"
+echo "    (after reboot: cat /sys/class/graphics/fb0/virtual_size  -> want 640,480)"
 
-echo "[03] install solid-blue plymouth theme 'iigsblue'"
+echo "[03] install/refresh solid-blue plymouth theme 'iigsblue'"
 TH=/usr/share/plymouth/themes/iigsblue
 install -d "$TH"
 cat > "$TH/iigsblue.plymouth" <<EOF
@@ -177,13 +90,9 @@ cat > "$TH/iigsblue.script" <<EOF
 Window.SetBackgroundTopColor($R, $G, $B);
 Window.SetBackgroundBottomColor($R, $G, $B);
 EOF
-
 if command -v plymouth-set-default-theme >/dev/null; then
   plymouth-set-default-theme iigsblue || true
-  update-initramfs -u 2>/dev/null || \
-    echo "  NOTE: if plymouth doesn't appear, add 'auto_initramfs=1' to config.txt"
-else
-  echo "  plymouth missing? re-run 01-system-prep.sh"
+  update-initramfs -u 2>/dev/null || true
 fi
 
-echo "[03] done."
+echo "[03] done. Reboot, then check fb0/virtual_size is 640,480."
