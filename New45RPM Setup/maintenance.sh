@@ -14,6 +14,13 @@
 #     daily on its own. This script's apt step below is for everything
 #     ELSE (feature/bugfix updates) that unattended-upgrades intentionally
 #     leaves alone.
+#   - Rotating nginx/php-fpm's own log files. Those are written to
+#     continuously by long-running processes, so they're handled by
+#     logrotate on its normal daily schedule (see
+#     logrotate-45rpm-site.conf) rather than waiting up to three months
+#     for this script. This script's own housekeeping step below is for
+#     things that only need clearing out periodically: apt/Docker caches,
+#     old kernels, the journal, and this script's own historical output.
 #
 set -uo pipefail
 # Deliberately not `-e`: one failed step shouldn't stop the rest running
@@ -28,6 +35,9 @@ COMPOSE_HOME=/home/pascalharris/lemp-compose
 SUPPORT_EMAIL=support@45rpmsoftware.com
 OWNER_ACCOUNT=pascalharris
 BACKUP_RETENTION=4        # quarterly local backups kept (~1 year)
+WP_SNAPSHOT_RETENTION=2   # WordPress pre-update snapshots kept (~6 months)
+LOG_RETENTION=8           # this script's own run-logs kept (~2 years)
+JOURNAL_RETENTION=90d     # systemd journal trimmed to this age
 LOGFILE="/var/log/site-maintenance/$(date +%Y%m%d_%H%M%S).log"
 
 declare -a sites
@@ -108,11 +118,45 @@ fi
 
 # ---- 5. Everything else apt hasn't already patched daily -------------------
 echo "-> Full apt upgrade"
-if apt-get update && apt-get -y full-upgrade && apt-get -y autoremove; then
+if apt-get update && apt-get -y full-upgrade; then
   echo "   apt upgrade OK"
 else
   fail "apt upgrade failed"
 fi
+
+# ---- 6. Housekeeping: free up disk space -----------------------------------
+echo "-> Disk usage before housekeeping:"
+df -h / "$COMPOSE_HOME"
+docker system df
+
+echo "-> Clearing stale apt cache and old kernels/packages"
+if apt-get -y autoremove --purge && apt-get clean; then
+  echo "   apt cleanup OK"
+else
+  fail "apt cleanup failed"
+fi
+
+echo "-> Pruning dangling Docker images and build cache"
+# Plain (non -a) prune only: removes untagged/dangling layers left behind
+# when a pinned tag like mariadb:11.4 is re-pulled, never anything a
+# running container still references -- so this is safe to run
+# unattended, unlike `docker system prune -a`.
+docker image prune -f
+docker builder prune -f
+
+echo "-> Trimming the systemd journal to the last $JOURNAL_RETENTION"
+journalctl --vacuum-time="$JOURNAL_RETENTION"
+
+echo "-> Pruning old WordPress pre-update snapshots (keeping last $WP_SNAPSHOT_RETENTION)"
+# shellcheck disable=SC2012
+ls -1t "$COMPOSE_HOME"/wp-snapshots/*.tar.gz 2>/dev/null | tail -n "+$((WP_SNAPSHOT_RETENTION + 1))" | xargs -r rm -f --
+
+echo "-> Pruning old maintenance run-logs (keeping last $LOG_RETENTION)"
+# shellcheck disable=SC2012
+ls -1t /var/log/site-maintenance/*.log 2>/dev/null | tail -n "+$((LOG_RETENTION + 1))" | xargs -r rm -f --
+
+echo "-> Disk usage after housekeeping:"
+df -h / "$COMPOSE_HOME"
 
 # ---- wrap up -----------------------------------------------------------------
 end=$(date +%s)

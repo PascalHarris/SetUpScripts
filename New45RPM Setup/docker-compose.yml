@@ -16,6 +16,18 @@
 # commented-out sites back, add another phpfpm-<name> service (copy
 # phpfpm-45rpm) and another server block in nginx/conf.d/.
 
+# Shared by every service below via `logging: *default-logging` -- caps
+# each container's own stdout/stderr capture (docker logs) at 30MB total,
+# so an unexpectedly chatty container can't quietly fill the disk between
+# quarterly maintenance runs. This is separate from, and doesn't replace,
+# logrotate-45rpm-site.conf, which handles nginx/php-fpm's own log FILES
+# written inside their bind-mounted ./logs directories.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 networks:
   app-tier:
     driver: bridge
@@ -31,6 +43,7 @@ services:
   maria-db:
     image: mariadb:11.4
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - app-tier
     environment:
@@ -50,6 +63,7 @@ services:
   phpfpm-45rpm:
     build: ./php-fpm
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - app-tier
     depends_on:
@@ -71,6 +85,7 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - phpfpm-45rpm
     networks:

@@ -364,8 +364,10 @@ without editing a crontab.
 Each quarterly run: dumps the database, backs up site files (pruning
 anything past the last 4), pulls and restarts the containers, runs the
 WordPress update (see below — a no-op until a site actually exists at that
-path), and does a full `apt upgrade` for anything unattended-upgrades
-doesn't cover. It emails you only if something failed.
+path), does a full `apt upgrade` for anything unattended-upgrades doesn't
+cover, and finishes with a housekeeping pass that frees up disk space (see
+"Log rotation and disk housekeeping"). It emails you only if something
+failed.
 
 ### WordPress updates
 
@@ -385,6 +387,46 @@ plugins and themes**, not just core. `wp-update.sh`:
 
 It's currently inert (`maintenance.sh` checks for `wp-config.php` and skips
 if it's not there yet) until the actual WordPress install happens.
+
+## Log rotation and disk housekeeping
+
+Split across two mechanisms, on two different schedules, for the same
+reason TLS renewal and security patching sit outside the quarterly job:
+some things grow continuously and can't wait three months, others only
+need clearing out periodically.
+
+**Continuously-written logs — daily, via logrotate.** nginx and php-fpm
+write their access/error logs to the bind-mounted `./logs/nginx` and
+`./logs/45rpm-php` directories for as long as the containers run, so
+they're handled by `logrotate-45rpm-site.conf` on Ubuntu's normal daily
+schedule, not by the quarterly script:
+
+```bash
+sudo cp logrotate-45rpm-site.conf /etc/logrotate.d/45rpm-site
+sudo logrotate -d /etc/logrotate.d/45rpm-site   # dry run, sanity-check first
+```
+
+Rotating a log file a process still has open doesn't by itself make that
+process start writing to the new file — its `postrotate` hook sends nginx
+a `reopen` signal, and php-fpm's master process a `USR1` signal, both of
+which mean "close and reopen your log files", right after each rotation.
+
+Docker's own capture of each container's stdout/stderr (separate from the
+files above) is capped directly in `docker-compose.yml` via a shared
+`x-logging` block — 10MB × 3 files per container — so that can't grow
+unbounded either, regardless of whether any cleanup script has run
+recently.
+
+**Everything else — quarterly, in `maintenance.sh`'s housekeeping step.**
+Stale `apt` package caches and superseded kernels, dangling Docker images
+and build cache left behind by each quarter's `docker compose pull`,
+`wp-update.sh`'s pre-update snapshots (kept 2 quarters back), this
+script's own historical run-logs (kept 8 quarters back), and the systemd
+journal (trimmed to 90 days) all only need attention this infrequently, so
+they stay in the one script rather than getting their own schedules too.
+It logs disk usage (`df -h`, `docker system df`) before and after, so a
+slow leak somewhere else would still show up in the quarterly e-mail
+report even if nothing here catches it directly.
 
 ## Automation risks — what you asked me to flag explicitly
 

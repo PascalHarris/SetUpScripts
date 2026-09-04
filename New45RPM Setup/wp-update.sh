@@ -25,7 +25,13 @@ wp() {
 }
 
 echo "-> Snapshotting $DOCROOT before update"
-snapshot="/tmp/wp-snapshot-$(date +%Y%m%d_%H%M%S).tar.gz"
+# Kept under the compose directory rather than /tmp so a failed run's
+# snapshot survives for review and is covered by maintenance.sh's own
+# retention pruning, rather than being at the mercy of /tmp's own cleanup
+# timer, which doesn't know how long you might need to look at it.
+SNAPSHOT_DIR="$(dirname "$0")/wp-snapshots"
+mkdir -p "$SNAPSHOT_DIR"
+snapshot="$SNAPSHOT_DIR/wp-snapshot-$(date +%Y%m%d_%H%M%S).tar.gz"
 tar czf "$snapshot" -C "$DOCROOT" .
 wp db export "wp-pre-update-backup.sql" || echo "   (DB export skipped -- see maintenance.sh's own DB dump instead)"
 
