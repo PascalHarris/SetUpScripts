@@ -1,0 +1,86 @@
+# Production stack for 45rpmsoftware.com
+#
+# Deliberately built on the *official* Docker Hub images (mariadb, nginx,
+# php) rather than Bitnami images. Since August 2025 Bitnami's free tier
+# has been a small, "latest"-tag-only, development-oriented catalogue with
+# no version pinning -- unsuitable for an unattended production box that
+# only gets touched quarterly. See server-setup-guide.md, "Why not Bitnami
+# any more?" for the detail.
+#
+# Pinning to major.minor tags below still lets `docker compose pull` pick
+# up patch releases automatically without risking a surprise major-version
+# jump landing unattended.
+#
+# ASSUMPTION: single site (45rpmsoftware.com) on this host, matching
+# sites[0] in the old maintenance.sh. To add one of the previously
+# commented-out sites back, add another phpfpm-<name> service (copy
+# phpfpm-45rpm) and another server block in nginx/conf.d/.
+
+networks:
+  app-tier:
+    driver: bridge
+
+secrets:
+  # Bare password, consumed only by MariaDB's own first-run
+  # initialisation. See server-setup-guide.md "Secrets" and
+  # rotate-db-password.sh for how this is generated and rotated.
+  db_root_password:
+    file: /root/secrets/db_root_password.txt
+
+services:
+  maria-db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    networks:
+      - app-tier
+    environment:
+      - MARIADB_ROOT_PASSWORD_FILE=/run/secrets/db_root_password
+      # Runs mysql_upgrade automatically after a version bump, unlike the
+      # other MARIADB_* vars this one DOES take effect on an existing
+      # data directory -- see official image docs.
+      - MARIADB_AUTO_UPGRADE=1
+    secrets:
+      - db_root_password
+    volumes:
+      - ./db-data:/var/lib/mysql
+      # [client]-format credentials file for mysqldump/mariadb-cli, kept
+      # in sync with db_root_password.txt by rotate-db-password.sh.
+      - /root/secrets/db_backup.cnf:/etc/mysql/backup.cnf:ro
+
+  phpfpm-45rpm:
+    build: ./php-fpm
+    restart: unless-stopped
+    networks:
+      - app-tier
+    depends_on:
+      - maria-db
+    volumes:
+      - ./public/45rpm/htdocs:/var/www/html
+      - ./logs/45rpm-php:/var/log/php-fpm
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - phpfpm-45rpm
+    networks:
+      - app-tier
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./public/45rpm/htdocs:/var/www/html:ro
+      # Deliberately OUTSIDE any webroot above -- see server-setup-guide.md
+      # "Keeping htpasswd (and friends) unreachable".
+      - ./nginx/htpasswd:/etc/nginx/htpasswd:ro
+      - ./logs/nginx:/var/log/nginx
+      # certbot (running on the HOST, not in a container -- see
+      # server-setup-guide.md "TLS certificates") writes ACME HTTP-01
+      # challenge files here; nginx just needs to be able to read them
+      # back over plain HTTP for the challenge to succeed.
+      - ./acme-challenge:/var/www/certbot:ro
+      # certbot's live/archive directories, mounted whole so the symlinks
+      # under live/<domain>/*.pem resolve correctly inside the container.
+      - /etc/letsencrypt:/etc/letsencrypt:ro

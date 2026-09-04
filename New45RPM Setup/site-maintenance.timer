@@ -1,0 +1,16 @@
+# Install to /etc/systemd/system/site-maintenance.timer
+[Unit]
+Description=Run site-maintenance.service quarterly at midnight
+
+[Timer]
+# Jan/Apr/Jul/Oct, 1st of the month, midnight.
+# This covers only the HEAVY jobs (backups, WordPress, full apt upgrade) --
+# see server-setup-guide.md "Automation risks". Security patches (daily,
+# via unattended-upgrades) and TLS renewal (twice-daily, via certbot's own
+# timer) run independently on much tighter schedules.
+OnCalendar=*-01,04,07,10-01 00:00:00
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

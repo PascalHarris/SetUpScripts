@@ -1,0 +1,13 @@
+# Install to /etc/systemd/system/site-maintenance.service
+[Unit]
+Description=Quarterly site maintenance (backup, updates, WordPress) for 45rpmsoftware.com
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/pascalharris/lemp-compose/maintenance.sh
+# Maintenance touches Docker, apt and root-owned files -- runs as root,
+# same as when it was previously invoked by hand via sudo.
+User=root
