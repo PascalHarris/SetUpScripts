@@ -25,4 +25,17 @@ RUN apk add --no-cache \
     && curl -fsSL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o /usr/local/bin/wp \
     && chmod +x /usr/local/bin/wp
 
+# The upstream image points error_log at stderr by default (sensible for
+# a plain `docker logs`, but it means the /var/log/php-fpm bind mount in
+# docker-compose.yml would otherwise sit empty). Override both the global
+# error log and the "www" pool's access log to write real files there
+# instead, so logrotate-45rpm-site.conf has something to actually rotate.
+RUN { \
+      echo '[global]'; \
+      echo 'error_log = /var/log/php-fpm/error.log'; \
+      echo; \
+      echo '[www]'; \
+      echo 'access.log = /var/log/php-fpm/access.log'; \
+    } > /usr/local/etc/php-fpm.d/zz-logging.conf
+
 WORKDIR /var/www/html
