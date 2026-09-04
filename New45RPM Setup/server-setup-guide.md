@@ -18,6 +18,7 @@ box:
 | Alerts | Failure-only e-mail to `support@45rpmsoftware.com`, relayed via your existing `mail.45rpmsoftware.com` (see "Alerting"). |
 | Backups | Local-only, last 4 quarterly backups kept (~1 year), no offsite copy yet. `maintenance.sh` prunes older ones automatically. Adding an offsite `rsync`/`rclone` push later is a single extra step in that script. |
 | WordPress auto-update scope | Core + plugins + themes, with an automatic pre-update snapshot and rollback on failure (see "WordPress updates"). |
+| SFTP account | A single restricted account, `sftp-45rpm`, chrooted to the `45rpm` site's docroot. Add one per site/person with `manage-sftp-user.sh <name> <dir>`. |
 
 ---
 
@@ -116,6 +117,86 @@ sudo dpkg-reconfigure -plow unattended-upgrades
 
 This applies **security** updates daily on its own, independent of the
 quarterly job below — see "Automation risks" for why that split matters.
+
+---
+
+## 5. Secure file transfer (SFTP)
+
+"FTP with SSH" is SFTP — a subsystem of OpenSSH, not a separate server.
+Nothing new needs installing (`openssh-server` is already there from
+step 1) and no new firewall port either: it rides over the same port 22
+`ufw` already opened. This deliberately isn't FTPS (plain FTP wrapped in
+TLS via something like `vsftpd`+`stunnel`) — that approach needs extra
+packages, a separate listening port, and a passive-port range punched
+through the firewall for no real benefit over SFTP here.
+
+Your own `pascalharris` account can already use SFTP right now, with the
+same key, landing in its home directory — no extra setup. What follows is
+for a **separate, restricted** account instead: one that can only transfer
+files into one specific directory (e.g. a site's docroot) and can't get a
+shell, run `sudo`, or see anywhere else on the box. That's the safer
+default for routine file transfers, and it's what makes the "default
+login directory" configurable and updatable, as asked for.
+
+First, point sshd at its self-contained SFTP implementation, which is
+what makes the chroot below work without having to duplicate binaries and
+libraries inside it. Change the existing `Subsystem sftp ...` line in
+`/etc/ssh/sshd_config` to:
+
+```
+Subsystem sftp internal-sftp
+```
+
+Then use `manage-sftp-user.sh` (root) to create the account and point it
+at a directory:
+
+```bash
+sudo chmod +x manage-sftp-user.sh
+sudo ./manage-sftp-user.sh sftp-45rpm /home/pascalharris/lemp-compose/public/45rpm/htdocs
+```
+
+This creates a `sftp-45rpm` user with no shell, chrooted to its own home
+directory, with the target directory bind-mounted in at `~/files` — so an
+SFTP client connecting as `sftp-45rpm` sees exactly one folder, `files`,
+containing the live site content, and nothing else on the server. Add the
+transferring machine's public key to
+`/home/sftp-45rpm/.ssh/authorized_keys` (the script creates the file with
+the right permissions; password authentication is disabled for this
+account the same as everywhere else).
+
+Install the matching sshd rule as its own drop-in, rather than editing
+the main config file:
+
+```bash
+sudo cp sftp-chroot.conf /etc/ssh/sshd_config.d/sftp-chroot.conf
+sudo sshd -t                    # validate before restarting
+sudo systemctl restart ssh
+```
+
+**Updating the login directory later** — e.g. pointing it at a different
+site, or a different subdirectory — is the same script, run again with a
+new target: it repoints the bind mount without touching the account, its
+key, or the sshd config at all:
+
+```bash
+sudo ./manage-sftp-user.sh sftp-45rpm /home/pascalharris/lemp-compose/public/other-site/htdocs
+```
+
+**Why the target directory needs a shared group.** The uploaded files
+need to be *readable and writable by both* the SFTP account and the
+`phpfpm-45rpm` container (which runs as `www-data` inside its own,
+separate UID namespace) — otherwise WordPress can't write to files SFTP
+uploaded, or vice versa. `manage-sftp-user.sh` handles this by putting the
+target directory under a shared `webfiles` group with the setgid bit set,
+and by adding the SFTP account to that group. The other half is telling
+the container to join the same group: copy `.env.example` to `.env`
+next to `docker-compose.yml` and set `WEBFILES_GID` to the number the
+script prints after it runs (`getent group webfiles` shows it again any
+time). `docker-compose.yml`'s `phpfpm-45rpm` service already has
+`group_add` wired up to read that value.
+
+Repeat `manage-sftp-user.sh` with a new username for each additional
+person or site that needs its own scoped file-transfer account.
 
 ---
 

@@ -57,6 +57,16 @@ services:
     volumes:
       - ./public/45rpm/htdocs:/var/www/html
       - ./logs/45rpm-php:/var/log/php-fpm
+    # Joins the host's "webfiles" group as a supplementary group (www-data
+    # stays the container's actual user) so files the sftp-45rpm account
+    # uploads are writable by both -- see server-setup-guide.md "Secure
+    # file transfer (SFTP)". Set WEBFILES_GID in a .env file next to this
+    # compose file (see .env.example); manage-sftp-user.sh prints the
+    # right value. Defaults to 82 (this image's own www-data GID, i.e. a
+    # harmless no-op) so `docker compose up` doesn't fail before SFTP is
+    # set up.
+    group_add:
+      - "${WEBFILES_GID:-82}"
 
   nginx:
     image: nginx:1.27-alpine
