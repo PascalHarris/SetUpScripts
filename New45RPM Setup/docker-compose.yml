@@ -46,6 +46,12 @@ services:
     logging: *default-logging
     networks:
       - app-tier
+    # Bound to the loopback address only so the SSH tunnel (and nothing
+    # else) can reach MariaDB from outside Docker. The 127.0.0.1: prefix
+    # is critical -- without it Docker binds to 0.0.0.0 and MariaDB
+    # becomes publicly reachable. See mariadb-connection-setup.md.
+    ports:
+      - "127.0.0.1:3306:3306"
     environment:
       - MARIADB_ROOT_PASSWORD_FILE=/run/secrets/db_root_password
       # Runs mysql_upgrade automatically after a version bump, unlike the
