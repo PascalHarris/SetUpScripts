@@ -105,9 +105,9 @@ fi
 
 # ---- 4. WordPress updates (skipped until a site is actually installed) -----
 echo "-> WordPress updates"
-WP_DOCROOT="$COMPOSE_HOME/public/45rpm/htdocs"
+WP_DOCROOT="$COMPOSE_HOME/public/45rpm/htdocs/blog"
 if [ -f "$WP_DOCROOT/wp-config.php" ]; then
-  if "$COMPOSE_HOME/wp-update.sh" "$WP_DOCROOT" phpfpm-45rpm "https://45rpmsoftware.com"; then
+  if "$COMPOSE_HOME/wp-update.sh" "$WP_DOCROOT" phpfpm-45rpm "https://45rpmsoftware.com/blog"; then
     echo "   WordPress updated"
   else
     fail "WordPress update failed or was rolled back -- check the log above"

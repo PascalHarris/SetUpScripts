@@ -21,7 +21,7 @@ CONTAINER="$2"    # e.g. phpfpm-45rpm
 SITE_URL="$3"     # e.g. https://45rpmsoftware.com
 
 wp() {
-  docker compose exec -T -u www-data "$CONTAINER" wp --path=/var/www/html "$@"
+  docker compose exec -T -u www-data "$CONTAINER" wp --path=/var/www/html/blog "$@"
 }
 
 echo "-> Snapshotting $DOCROOT before update"
