@@ -17,8 +17,12 @@ NEW_PASSWORD=$(openssl rand -base64 32)
 #    haven't overwritten it yet). --defaults-extra-file keeps the
 #    password off the command line entirely, so it never appears in `ps`.
 docker compose -f "$COMPOSE_HOME/docker-compose.yml" exec -T maria-db \
-  mariadb --defaults-extra-file=/etc/mysql/backup.cnf \
-  -e "ALTER USER 'root'@'%' IDENTIFIED BY '${NEW_PASSWORD}'; FLUSH PRIVILEGES;"
+  mariadb \
+  --protocol=tcp --host=127.0.0.1 \
+  --defaults-extra-file=/etc/mysql/backup.cnf \
+  -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${NEW_PASSWORD}';
+      ALTER USER 'root'@'%'         IDENTIFIED BY '${NEW_PASSWORD}';
+      FLUSH PRIVILEGES;"
 
 # 2. Now bring both files that reference the password up to date.
 #    (db_root_password.txt is only read by MariaDB on first-run
