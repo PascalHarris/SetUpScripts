@@ -135,10 +135,15 @@ if [[ "${CONFIRM^^}" != "Y" ]]; then
 fi
 
 # ── WP-CLI helper — all commands target /var/www/html/blog ───────────────────
+# WP_CLI_PHP_ARGS only affects child processes WP-CLI spawns, not WP-CLI's
+# own PHP process. Calling php directly with -d memory_limit is the only
+# reliable way to raise the limit for commands like `core download` that
+# exhaust memory inside WP-CLI's own process (extracting a large zip).
 wpcli() {
     docker compose -f "${COMPOSE_HOME}/docker-compose.yml" \
         exec -T -u www-data "${PHPFPM_SERVICE}" \
-        wp --path="${BLOG_CONTAINER_PATH}" "$@"
+        php -d memory_limit=512M /usr/local/bin/wp \
+        --path="${BLOG_CONTAINER_PATH}" "$@"
 }
 
 # ── Step 1: Create the blog directory ────────────────────────────────────────
